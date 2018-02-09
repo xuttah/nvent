@@ -104,7 +104,7 @@ Function Main {
     { 
         "" 
         #User to add to mailbox 
-        $UserToPermission = Read-Host "Enter the username for the person or group you want to give access to this mailbox (e.g you@domain.com)" 
+        $UserToPermission = Read-Host "Enter the username for the person or group you want to give access to this mailbox" 
          
         #Get Permission Type 
         $title = "Permission Type" 
