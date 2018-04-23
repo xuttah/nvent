@@ -22,7 +22,7 @@
 [string]$FileAppend = (Get-Date -Format mmddyyyy_) + (Get-Random -Maximum 9999)
 $OutputFile = "C:\scripts\license_output_" + $FileAppend + ".csv"
 $Username = "S0001920000000@nventco.onmicrosoft.com"
-$PasswordPath = "c:\scripts\password.txt"
+$PasswordPath = "c:\scripts\securepass.txt"
 $Allresults = @()
 #
 # Read the password from the file and convert to SecureString
