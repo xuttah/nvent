@@ -49,7 +49,7 @@ Connect-MsolService -Credential $Credential
 #
 # Define custom SKUs with only critical services
 $nVentE3Options = New-MsolLicenseOptions -AccountSkuId nventco:ENTERPRISEPACK -DisabledPlans BPOS_S_TODO_2,FORMS_PLAN_E3,STREAM_O365_E3,Deskless,FLOW_O365_P2,POWERAPPS_O365_P2,TEAMS1,PROJECTWORKMANAGEMENT,SWAY,INTUNE_O365,YAMMER_ENTERPRISE,RMS_S_ENTERPRISE
-$nVentF1Options = New-MsolLicenseOptions -AccountSkuId nventco:ENTERPRISEPACK -DisabledPlans #list sub-SKUs
+$nVentF1Options = New-MsolLicenseOptions -AccountSkuId nventco:ENTERPRISEPACK -DisabledPlans BPOS_S_TODO_FIRSTLINE,FORMS_PLAN_K,STREAM_O365_K,FLOW_O365_S1,POWERAPPS_O365_S1,TEAMS1,SWAY,INTUNE_O365,YAMMER_ENTERPRISE
 #
 # Get all members of AD group for E3 licenses
 #
