@@ -45,7 +45,7 @@ Start-sleep -seconds 15
 #Connect to Office 365
 Import-Module MSOnline
 Import-Module ActiveDirectory
-Connect-MsolService
+Connect-MsolService -Credential $Credential
 #
 # Define custom SKUs with only critical services
 $nVentE3Options = New-MsolLicenseOptions -AccountSkuId nventco:ENTERPRISEPACK -DisabledPlans BPOS_S_TODO_2,FORMS_PLAN_E3,STREAM_O365_E3,Deskless,FLOW_O365_P2,POWERAPPS_O365_P2,TEAMS1,PROJECTWORKMANAGEMENT,SWAY,INTUNE_O365,YAMMER_ENTERPRISE,RMS_S_ENTERPRISE
