@@ -48,66 +48,65 @@ Import-Module ActiveDirectory
 Connect-MsolService -Credential $Credential
 #
 # Define custom SKUs with only critical services
-$nVentE3Options = New-MsolLicenseOptions -AccountSkuId nventco:ENTERPRISEPACK -DisabledPlans BPOS_S_TODO_2,FORMS_PLAN_E3,STREAM_O365_E3,Deskless,FLOW_O365_P2,POWERAPPS_O365_P2,TEAMS1,PROJECTWORKMANAGEMENT,SWAY,INTUNE_O365,YAMMER_ENTERPRISE,RMS_S_ENTERPRISE
-$nVentF1Options = New-MsolLicenseOptions -AccountSkuId nventco:ENTERPRISEPACK -DisabledPlans BPOS_S_TODO_FIRSTLINE,FORMS_PLAN_K,STREAM_O365_K,FLOW_O365_S1,POWERAPPS_O365_S1,TEAMS1,SWAY,INTUNE_O365,YAMMER_ENTERPRISE
+#
+$E3SKU = "nventco:ENTERPRISEPACK"
+$F1SKU = "nventco:DESKLESSPACK"
+$nVentE3Options = New-MsolLicenseOptions -AccountSkuId $E3SKU -DisabledPlans BPOS_S_TODO_2,FORMS_PLAN_E3,STREAM_O365_E3,Deskless,FLOW_O365_P2,POWERAPPS_O365_P2,TEAMS1,PROJECTWORKMANAGEMENT,SWAY,INTUNE_O365,YAMMER_ENTERPRISE,RMS_S_ENTERPRISE,OFFICESUBSCRIPTION
+$nVentE3DisabledPlans = "BPOS_S_TODO_2,FORMS_PLAN_E3,STREAM_O365_E3,Deskless,FLOW_O365_P2,POWERAPPS_O365_P2,TEAMS1,PROJECTWORKMANAGEMENT,SWAY,INTUNE_O365,YAMMER_ENTERPRISE,RMS_S_ENTERPRISE,OFFICESUBSCRIPTION"
+$nVentF1Options = New-MsolLicenseOptions -AccountSkuId $F1SKU -DisabledPlans BPOS_S_TODO_FIRSTLINE,FORMS_PLAN_K,STREAM_O365_K,FLOW_O365_S1,POWERAPPS_O365_S1,TEAMS1,SWAY,INTUNE_O365,YAMMER_ENTERPRISE
+$nVentF1DisabledPlans = "BPOS_S_TODO_FIRSTLINE,FORMS_PLAN_K,STREAM_O365_K,FLOW_O365_S1,POWERAPPS_O365_S1,TEAMS1,SWAY,INTUNE_O365,YAMMER_ENTERPRISE"
 #
 # Get all members of AD group for E3 licenses
 #
 $E3users = Get-ADGroupMember -Identity "NVT-AP-0365-E3"
-#
-# Define E3 SKU
-#
-$E3SKU = "nventco:ENTERPRISEPACK"
 #
 # Assign licenses to any unassigned group members
 #
 
 $LicCount = foreach ($E3user in $E3users)
 {   ## Get Azure AD users by UPN
-    $UserLic = Get-MsolUser -UserPrincipalName $E3User.UserPrincipalName
+    $thisADuser = Get-ADUser $E3user.SamAccountName -Properties userprincipalname,c | where {$_.enabled -eq $true}
+    $UserLic = Get-MsolUser -UserPrincipalName $thisADuser.userprincipalname
   
     ## If user has no license, assign one
     If ($UserLic.IsLicensed -eq $false)
     {
-        Write-output "$($E3User.UserPrincipalName) in NVT-AP-0365-E3 group is unlicensed"
-        $UserCountry = Get-ADUser $E3user.SamAccountName -Properties c | Select-Object -ExpandProperty c
-        Set-MsolUser -UserPrincipalName $E3User.UserPrincipalName -UsageLocation $UserCountry
-        Set-MsolUserLicense -UserPrincipalName $E3User.UserPrincipalName -AddLicenses $E3SKU -LicenseOptions $nVentE3Options
+        Write-output ("$($thisADuser.userprincipalname) in NVT-AP-0365-E3 group is unlicensed")
+        Set-MsolUser -UserPrincipalName $thisADuser.userprincipalname -UsageLocation $thisADuser.c
+        Set-MsolUserLicense -UserPrincipalName $thisADuser.userprincipalname -AddLicenses $E3SKU -LicenseOptions $nVentE3Options
         $E3thisresult = new-object PSObject
-        $E3thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $E3User.UserPrincipalName
+        $E3thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $thisADuser.userprincipalname
         $E3thisresult | Add-Member -MemberType NoteProperty -Name "License Applied" -Value $E3SKU
+        $E3thisresult | Add-Member -MemberType NoteProperty -Name "Disabled Plans" -Value $nVentE3DisabledPlans
         $Allresults += $E3thisresult
     }
 }
-Write-output "Licensed $($LicCount.Count) users for E3."
+Write-output ("Licensed $($LicCount.Count) users for E3.")
 #
 # Get all members of AD group for F1 licenses
 #
 $F1users = Get-ADGroupMember -Identity "NVT-AP-0365-F1"
-#
-# Define F1 SKU
-#
-$F1SKU = "nventco:DESKLESSPACK"
-#
+
 # Assign licenses to any unassigned group members
 #
 $LicCount = foreach ($F1user in $F1users)
 {   ## Get Azure AD users by UPN
-    $UserLic = Get-MsolUser -UserPrincipalName $F1User.UserPrincipalName
+    $thisADuser = Get-ADUser $F1user.SamAccountName -Properties userprincipalname,c | where {$_.enabled -eq $true}
+    $UserLic = Get-MsolUser -UserPrincipalName $thisADuser.userprincipalname
   
     ## If user has no license, assign one
     If ($UserLic.IsLicensed -eq $false)
     {
-        Write-output "$($F1User.UserPrincipalName) in NVT-AP-0365-F1 group is unlicensed"
-        $UserCountry = Get-ADUser $F1user.SamAccountName -Properties c | Select-Object -ExpandProperty c
-        Set-MsolUser -UserPrincipalName $F1User.UserPrincipalName -UsageLocation $UserCountry
-        Set-MsolUserLicense -UserPrincipalName $F1User.UserPrincipalName -AddLicenses $F1SKU -LicenseOptions $nVentF1Options
+        Write-output ("$($thisADuser.userprincipalname) in NVT-AP-0365-F1 group is unlicensed")
+        Set-MsolUser -UserPrincipalName $thisADuser.userprincipalname -UsageLocation $thisADuser.c
+        Set-MsolUserLicense -UserPrincipalName $thisADuser.userprincipalname -AddLicenses $F1SKU -LicenseOptions $nVentF1Options
         $F1thisresult = new-object PSObject
-        $F1thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $F1User.UserPrincipalName
+        $F1thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $thisADuser.userprincipalname
         $F1thisresult | Add-Member -MemberType NoteProperty -Name "License Applied" -Value $F1SKU
+        $F1thisresult | Add-Member -MemberType NoteProperty -Name "Disabled Plans" -Value $nVentF1DisabledPlans
         $Allresults += $F1thisresult
     }
 }
-Write-output "Licensed $($LicCount.Count) users for F1."
-Write-Output "Exporting results to $($OutputFile)."
+Write-output ("Licensed $($LicCount.Count) users for F1.")
+Write-Output ("Exporting results to $($OutputFile).")
 $Allresults | Export-Csv $OutputFile -NoTypeInformation
