@@ -36,16 +36,16 @@ function Set-UnlicensedUsers {
         If ($UserLic.IsLicensed -eq $false)
         {
             Write-output ("$($thisADuser.userprincipalname) in NVT-AP-0365-E3 group is unlicensed")
-            Set-MsolUser -UserPrincipalName $thisADuser.userprincipalname -UsageLocation $thisADuser.c
             Set-MsolUserLicense -UserPrincipalName $thisADuser.userprincipalname -AddLicenses $MFASKU,$E3SKU -LicenseOptions $nVentE3Options
             $E3thisresult = new-object PSObject
             $E3thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $thisADuser.userprincipalname
-            $E3thisresult | Add-Member -MemberType NoteProperty -Name "License Applied" -Value $E3SKU
+            $E3thisresult | Add-Member -MemberType NoteProperty -Name "License Applied" -Value $E3SKU,$MFASKU
             $E3thisresult | Add-Member -MemberType NoteProperty -Name "Disabled Plans" -Value $nVentE3DisabledPlans
             $Allresults += $E3thisresult
         }
     }
     Write-output ("Licensed $($LicCount.Count) users for E3.")
+    $Allresults | Export-Csv $OutputFile -NoTypeInformation -Append
     #
     # Get all members of AD group for F1 licenses
     #
@@ -55,60 +55,69 @@ function Set-UnlicensedUsers {
     #
     $F1LicCount = foreach ($F1user in $F1GroupMembers)
     {   ## Get Azure AD users by UPN
-        $thisADuser = Get-ADUser $F1user.SamAccountName -Properties userprincipalname,c | where {$_.enabled -eq $true}
+        $thisADuser = Get-ADUser $F1user.SamAccountName -Properties userprincipalname | where {$_.enabled -eq $true}
         $UserLic = Get-MsolUser -UserPrincipalName $thisADuser.userprincipalname
       
         ## If user has no license, assign one
         If ($UserLic.IsLicensed -eq $false)
         {
             Write-output ("$($thisADuser.userprincipalname) in NVT-AP-0365-F1 group is unlicensed")
-            Set-MsolUser -UserPrincipalName $thisADuser.userprincipalname -UsageLocation $thisADuser.c
-            Set-MsolUserLicense -UserPrincipalName $thisADuser.userprincipalname -AddLicenses $F1SKU -LicenseOptions $nVentF1Options
+            Set-MsolUserLicense -UserPrincipalName $thisADuser.userprincipalname -AddLicenses $MFASKU,$F1SKU -LicenseOptions $nVentF1Options
             $F1thisresult = new-object PSObject
             $F1thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $thisADuser.userprincipalname
-            $F1thisresult | Add-Member -MemberType NoteProperty -Name "License Applied" -Value $F1SKU
+            $F1thisresult | Add-Member -MemberType NoteProperty -Name "License Applied" -Value $F1SKU,$MFASKU
             $F1thisresult | Add-Member -MemberType NoteProperty -Name "Disabled Plans" -Value $nVentF1DisabledPlans
             $Allresults += $F1thisresult
         }
     }
     Write-output ("Licensed $($LicCount.Count) users for F1.")
     Write-Output ("Exporting results to $($OutputFile).")
-    $Allresults | Export-Csv $OutputFile -NoTypeInformation
+    $Allresults | Export-Csv $OutputFile -NoTypeInformation -Append
     $E3GroupMembers = $null
     $E3user = $null
     $UserLic = $null
+    $E3thisresult = $null
+    $F1thisresult = $null
 }
 ##
 function Remove-licensedUsers {
-#
+    #
     # Get all members of AD group for E3 licenses
     $E3GroupMembers = Get-ADGroupMember -Identity "NVT-AP-0365-E3"
+    # Get all members of AD group for F1 licenses
+    $F1GroupMembers = Get-ADGroupMember -Identity "NVT-AP-0365-F1"
     # Get all users in Office 365 with E3 licenses
     $E3LicensedUsers = Get-MsolUser -all -Synchronized | Where-Object {($_.licenses).AccountSkuId -match "EnterprisePack"}
+    # Get all users in Office 365 with F1 licenses
+    $F1LicensedUsers = Get-MsolUser -all -Synchronized | Where-Object {($_.licenses).AccountSkuId -match "DESKLESSPACK"}
     #
-    # Check for any synced E3-licensed user in Office 365 that isn't a member of the E3 AD Group
-    #
-
-    $LicCount = foreach ($E3user in $E3GroupMembers)
-    {   ## Get Azure AD users by UPN
-        $thisADuser = Get-ADUser $E3user.SamAccountName -Properties userprincipalname,c | where {$_.enabled -eq $true}
-        $UserLic = Get-MsolUser -UserPrincipalName $thisADuser.userprincipalname | %{($_.Licenses).AccountSkuID}
-      
-        ## If user an E3 license, remove it
-        If ($UserLic.IsLicensed -eq $false)
+    # Set counter to zero
+    $LicenseCount = 0
+    #  
+    foreach ($MSOLUser in $E3LicensedUsers)
+    {
+        If ($E3GroupMembers -contains $MSOLUser.userprincipalname)
         {
-            Write-output ("$($thisADuser.userprincipalname) in NVT-AP-0365-E3 group is unlicensed")
-            Set-MsolUser -UserPrincipalName $thisADuser.userprincipalname -UsageLocation $thisADuser.c
-            Set-MsolUserLicense -UserPrincipalName $thisADuser.userprincipalname -AddLicenses $MFASKU,$E3SKU -LicenseOptions $nVentE3Options
+            # AD User is licensed and member of the E3 group. Do Nothing.
+        }
+        else 
+        {
+            # AD User is licensed but not a member of the E3 group; Remove license.
+            Set-MsolUserLicense -UserPrincipalName $MSOLUser.userprincipalname -RemoveLicenses $MFASKU,$E3SKU 
             $E3thisresult = new-object PSObject
-            $E3thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $thisADuser.userprincipalname
-            $E3thisresult | Add-Member -MemberType NoteProperty -Name "License Applied" -Value $E3SKU
-            $E3thisresult | Add-Member -MemberType NoteProperty -Name "Disabled Plans" -Value $nVentE3DisabledPlans
+            $E3thisresult | Add-Member -MemberType NoteProperty -Name "AD Account" -Value $MSOLUser.userprincipalname
+            $E3thisresult | Add-Member -MemberType NoteProperty -Name "License Removed" -Value $E3SKU
             $Allresults += $E3thisresult
+
         }
     }
+    Write-Output ("Exporting results to $($OutputFile).")
+    $Allresults | Export-Csv $OutputFile -NoTypeInformation -Append
+    $E3GroupMembers = $null
+    $E3user = $null
+    $UserLic = $null
+    $E3thisresult = $null
 }
-
 #
 # Constants
 [string]$FileAppend = (Get-Date -Format mmddyyyy_) + (Get-Random -Maximum 9999)
