@@ -25,7 +25,7 @@ function Set-UnlicensedUsers {
     $E3GroupMembers = Get-ADGroupMember -Identity "NVT-AP-0365-E3"
     #
     # Assign licenses to any unassigned group members
-    #
+    ##
 
     $E3LicCount = foreach ($E3user in $E3GroupMembers)
     {   ## Get Azure AD users by UPN
