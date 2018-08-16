@@ -1,68 +1,102 @@
-# Set-MailboxAccess
-# This script parses membership of a group (inclusive recursive membership) and
-# assigns mailbox permissions to group members in Exchange Online.  This is done to 
-# ensure automapping functionality is retained (not available when assigning permission to group, only members)
-#
-Import-Module MSOnline
-Import-Module ActiveDirectory
-$ExchangeSession = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://ps.outlook.com/powershell -Credential $credential -Authentication Basic -AllowRedirection
-#Import session commands
-Import-PSSession $ExchangeSession
-#Connect to MS Online
-Connect-MSOLService -credential $credential
-
-param([string]$Group,[string]$Mailbox)
-
-# Helper function to get group members recursively
-# This is from Steve Goodman 
-# http://www.stevieg.org/2010/12/report-exchange-mailboxes-group-members-full-access/
-function Get-GroupMembersRecursive 
-{
-    param($Group)
-    [array]$Members = @()
-    $Group = Get-Group $Group -ErrorAction SilentlyContinue -ResultSize Unlimited
-    if (!$Group)
-    {
-        throw "Group not found"
-        
-    }
-    foreach ($Member in $Group.Members)
-    {
-        if (Get-Group $Member -ErrorAction SilentlyContinue -ResultSize Unlimited)
-        {
-            $Members += Get-GroupMembersRecursive -Group $Member
-        } else {
-            $Members += ((get-user $Member.Name -ResultSize Unlimited).SamAccountName)
-        }
-    }
-    $Members = $Members | Select -Unique
-    return $Members
+<#
+.SYNOPSIS
+    The script will automatically assign mailbox and recipient permissions on shared mailboxes based on groups.
+.EXAMPLE
+   .\SharedMailboxViaGroups.ps1 -Prefix 'SM-'
+.PARAMETER Prefix
+    Prefix of the groups that will manage permissions on the shared mailboxes.
+#>
+ 
+function Connect-ExchangeOnline {
+  # NEEDS STORED CREDENTIAL!!!!!!
+  #Creates an Exchange Online session
+  $ExchangeSession = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri https://ps.outlook.com/powershell -Credential $credential -Authentication Basic -AllowRedirection
+  #Import session commands
+  Import-PSSession $ExchangeSession
+  #Connect to MS Online
+  Connect-MSOLService -credential $credential
 }
-# List all current non inherited Full Access permissions, excluding SELF
-$SAMGroup = Get-Group $Group
-$SAMGroup = $SAMGroup.SamAccountName
-$CurrentMailboxPermission = Get-MailboxPermission -Identity $Mailbox | where { ($_.AccessRights -like "*FullAccess*") -and ($_.IsInherited -eq $false) -and -not ($_.User -like "NT AUTHORITY\SELF")}| Select User 
-
-# Cleanup all permissions directly added to Mailbox (not inherited), this is necessary to keep Group memberships 
-# and actuall added permission the same. Note: the assumption is that Full Access permissions are only
-# handed out via used security group and not manually. All other accounts and groups will have their permissions removed
-foreach ($User in $CurrentMailboxPermission){
-	$User = [String] $User.User
-	Write-Output "Removing FullAccess permission for $User"
-	Remove-MailboxPermission -Identity $Mailbox -User $User -AccessRights 'FullAccess' -InheritanceType 'All' -Confirm:$false
+function Add-SharedMailboxPermission {
+  param(
+    [string]$Identity,
+    [string]$SharedMailboxName
+  )
+  try {
+    Add-MailboxPermission -Identity $SharedMailboxName -User $Identity -AccessRights FullAccess -ErrorAction stop | Out-Null
+    Add-RecipientPermission -Identity $SharedMailboxName -Trustee $Identity -AccessRights SendAs -Confirm:$False -ErrorAction stop | Out-Null
+    Write-Output "INFO: Successfully added $Identity to $SharedMailboxName"
+  } catch {
+    Write-Warning "Cannot add $Identity to $SharedMailboxName`r`n$_"
+  }
+}
+function Remove-SharedMailboxPermission {
+  param(
+    [string]$Identity,
+    [string]$SharedMailboxName
+  )
+  try {
+    Remove-MailboxPermission -Identity $SharedMailboxName -User $Identity -AccessRights FullAccess -Confirm:$False -ErrorAction stop -WarningAction ignore | Out-Null
+    Remove-RecipientPermission -Identity $SharedMailboxName -Trustee $Identity -AccessRights SendAs -Confirm:$False -ErrorAction stop -WarningAction ignore  | Out-Null
+    Write-Output "INFO: Successfully removed $Identity from $SharedMailboxName"
+  } catch {
+    Write-Warning "Cannot remove $Identity from $SharedMailboxName`r`n$_"
+  }
+}
+function Sync-EXOResourceGroup {
+  [CmdletBinding(SupportsShouldProcess=$true)]
+  param(
+    [string]$Prefix = '!SR '
+  )
+  #Get All groups to process mailboxes for
+  $MasterGroups = Get-Group -ResultSize Unlimited -Identity "$Prefix*"
+  foreach ($Group in $MasterGroups) {
+    #Remove prefix to get the mailbox name
+    $MbxName_woPrefix = $Group.Name.Replace("$Prefix",'')
+	If ($MbxName_woPrefix -match " FA" ) {
+		$MbxName = $MbxName_woPrefix.Replace(" FA",'')
 	}
-
-# Listing every unique member of every group recursivly
-[array]$Members = @();
-$Group = Get-Group $Group -ErrorAction SilentlyContinue -ResultSize Unlimited;
-if (!$Group)
-{
-    throw "Group not found"
+	Else {
+		$MbxName = $MbxName_woPrefix.Replace(" SA",'')
+	}
+    $SharedMailboxName =  (Get-Mailbox -Identity $MbxName -ErrorAction ignore -WarningAction ignore).WindowsLiveID
+    if ($SharedMailboxName) { 
+      Write-Verbose -Message "Processing group $($Group.Name) and mailbox $SharedMailboxName"
+      #Get all users with explicit permissions on the mailbox
+      $SharedMailboxDelegates = Get-MailboxPermission -Identity $SharedMailboxName -ErrorAction Stop -ResultSize Unlimited | Where-Object {$_.IsInherited -eq $false -and $_.User -ne "NT AUTHORITY\SELF" -and $_.User -notlike "!SR*"} | Select-Object @{Name="User";Expression={(Get-Mailbox $_.User).UserPrincipalName}}
+      #Get all group members
+      $SharedMailboxMembers = Get-DistributionGroupMember -Identity $Group.Identity -ResultSize Unlimited
+      #Remove users if group is empty
+      if (-not($SharedMailboxMembers) -and $SharedMailboxDelegates) {
+        Write-Warning "The group $Group is empty, will remove explicit permissions from $SharedMailboxName"
+        foreach ($user in $SharedMailboxDelegates.User) {
+          Remove-SharedMailboxPermission -Identity $user -SharedMailboxName $SharedMailboxName
+        }
+        #Add users if no permissions are present
+      } elseif (-not($SharedMailboxDelegates)) {
+        foreach ($user in $SharedMailboxMembers.WindowsLiveID) {
+          Add-SharedMailboxPermission -Identity $user -SharedMailboxName $SharedMailboxName
+        }
+        #Process removals and adds
+      } else {
+        #Compare the group with the users that have actual access
+        $Users = Compare-Object -ReferenceObject $SharedMailboxDelegates.User -DifferenceObject $SharedMailboxMembers.WindowsLiveID 
+          
+        #Add users that are members of the group but do not have access to the shared mailbox
+        foreach ($user in ($users | Where-Object {$_.SideIndicator -eq "=>"})) {
+          Add-SharedMailboxPermission -Identity $user.InputObject -SharedMailboxName $SharedMailboxName
+        }
+        #Remove users that have access to the shared mailbox but are not members of the group
+        foreach ($user in ($users | Where-Object {$_.SideIndicator -eq "<="})) {
+          Remove-SharedMailboxPermission -Identity $user.InputObject -SharedMailboxName $SharedMailboxName
+        }
+      }
+    } else {
+      Write-Warning "Could not find the mailbox $MbxName"
+    }
+  }
 }
-[array]$Members = Get-GroupMembersRecursive -Group $Group
-
-# Adding the mailbox permission Full Access to users in group and subgroups on mailbox
-Write-Output "The following users have Full Access on $Mailbox :"
-foreach ($Member in $Members) {
-		Add-MailboxPermission -Identity $Mailbox -User $Member -AccessRights FullAccess 
-}
+#Connect to Exchange Online
+Connect-ExchangeOnline
+#Start Processing groups and mailboxes
+[string]$Prefix = '!SR '
+Sync-EXOResourceGroup -Prefix $Prefix -Verbose
